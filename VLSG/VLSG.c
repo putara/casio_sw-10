@@ -1529,7 +1529,7 @@ static void ControlChange(void)
             {
                 if (channel_data_ptr->parameter_number_LSB == 0) // Pitch bend range
                 {
-                    if (channel_data_ptr->data_entry_MSB <= 12)
+                    if (channel_data_ptr->data_entry_MSB <= 24)
                     {
                         channel_data_ptr->pitch_bend_sense = 2 * ((channel_data_ptr->data_entry_MSB << 7) + channel_data_ptr->data_entry_LSB);
                     }
@@ -1562,7 +1562,7 @@ static void ControlChange(void)
             {
                 if (channel_data_ptr->parameter_number_LSB == 0) // Pitch bend range
                 {
-                    if (channel_data_ptr->data_entry_MSB <= 12)
+                    if (channel_data_ptr->data_entry_MSB <= 24)
                     {
                         channel_data_ptr->pitch_bend_sense = 2 * ((channel_data_ptr->data_entry_MSB << 7) + channel_data_ptr->data_entry_LSB);
                     }
