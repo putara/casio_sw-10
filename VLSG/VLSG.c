@@ -56,13 +56,13 @@ typedef struct
 
 typedef struct
 {
-    uint32_t field_00;
-    uint32_t field_04;
-    uint32_t field_08;
+    uint32_t wv_fpos;
+    uint32_t wv_end;
+    uint32_t wv_start;
     int32_t field_0C[4];
-    uint32_t field_1C;
-    uint32_t field_20;
-    uint32_t field_24;
+    uint32_t wv_un3_hi;
+    uint32_t wv_pos;
+    uint32_t v_freq;
     int32_t field_28;
     int32_t field_2C;
     int32_t field_30;
@@ -71,32 +71,45 @@ typedef struct
     int32_t note_number;
     int16_t note_velocity;
     int16_t channel_num_2;
-    int16_t field_44;
+    int16_t base_freq;
     uint16_t vflags;
     int16_t field_48;
     int16_t field_4A;
     int16_t field_4C;
-    uint16_t field_4E;
+    uint16_t v_vol;
     int16_t field_50;
     int16_t field_52;
     int16_t field_54;
-    int16_t field_56;
-    int16_t field_58;
-    int16_t field_5A;
-    uint16_t field_5C;
-    uint16_t field_5E;
-    int16_t field_60;
-    int16_t field_62;
-    int16_t field_64;
-    int16_t field_66;
-    int16_t field_68;
-    int16_t field_6A;
+    int16_t detune;   // = pgm.detune
+    int16_t pgm_f0E;  // = pgm.field_0E
+    int16_t pgm_f10;  // = pgm.field_10
+    uint16_t index;   // = pgm.index
+    uint16_t pgm_f14; // = pgm.field_14
+    int16_t wv_un3_lo;
+    int16_t v_velocity;
+    int16_t vol;
+    int16_t wv_un1_lo;
+    int16_t wv_un1_hi;
+    int16_t v_panpot;
 } Voice_Data;
 
 typedef struct
 {
-    int16_t data[28];
-} struc_6;
+  uint16_t field_00;
+  uint16_t field_02;
+  int16_t  detune;
+  int16_t  field_06;
+  int16_t  field_08;
+  int16_t  panpot;
+  int16_t  field_0C;
+  int16_t  field_0E;
+  int16_t  field_10;
+  uint16_t index;
+  uint16_t field_14;
+  int16_t  field_16;
+  int16_t  field_18;
+  int16_t  field_1A;
+} Program_Data;
 
 
 enum Voice_Flags
@@ -130,7 +143,7 @@ static int32_t output_size_para;
 static uint32_t system_time_2;
 static uint8_t event_data[32];
 static uint32_t recent_voice_index;
-static struc_6 *stru6_ptr;
+static Program_Data *program_data_ptr;
 static Channel_Data *channel_data_ptr;
 static uint32_t event_type;
 static int32_t event_length;
@@ -143,10 +156,10 @@ static uint8_t midi_data_buffer[65536];
 static volatile uint32_t midi_data_write_index;
 static uint32_t processing_phase;
 static uint32_t rom_offset;
-static struc_6 stru_C0030080[MIDI_CHANNELS];
+static Program_Data program_data[MIDI_CHANNELS * 2];
 static Channel_Data channel_data[MIDI_CHANNELS];
 static Voice_Data voice_data[MAX_VOICES];
-static uint32_t effect_type;
+static uint32_t velocity_func;
 static int32_t current_polyphony;
 static const uint8_t *romsxgm_ptr;
 static uint32_t output_frequency;
@@ -230,17 +243,18 @@ static const uint32_t dword_C0032588[256] =
     34591, 34599, 34606, 34614, 34622, 34630, 34638, 34646,
     34653, 34661, 34669, 34677, 34685, 34692, 34700, 34708
 };
-static const int32_t dword_C0032988[38+34+1] =
+
+#define DRUM_EXC_ORCHESTRA  38
+
+static const int32_t drum_exc_map[38+34+1] =
 {
-// this is possibly a bug in the original code
-// maybe there were supposed to be two zero terminated lists (dword_C0032988 and dword_C0032A20)
     42, 44, 42, 46, 44, 42, 44, 46,
     46, 42, 46, 44, 71, 72, 72, 71,
     73, 74, 74, 73, 78, 79, 79, 78,
     80, 81, 81, 80, 29, 30, 30, 29,
     86, 87, 87, 86,
     255, 255,
-// dword_C0032A20[34] // dword_C0032A20 = &dword_C0032988[38]
+// dword_C0032A20[34] // dword_C0032A20 = &drum_exc_map[DRUM_EXC_ORCHESTRA]
     27, 28, 27, 29, 28, 27, 28, 29,
     29, 27, 29, 28, 71, 72, 72, 71,
     73, 74, 74, 73, 78, 79, 79, 78,
@@ -249,7 +263,7 @@ static const int32_t dword_C0032988[38+34+1] =
 // zero terminator
     0
 };
-static const int32_t dword_C0032AA8[12][128] =
+static const int32_t velocity_curves[12][128] =
 {
     {
           0,   1,   1,   1,   2,   2,   2,   2,   3,   3,   4,   5,   6,   7,   8,   9,
@@ -261,7 +275,6 @@ static const int32_t dword_C0032AA8[12][128] =
         109, 110, 111, 111, 112, 113, 113, 114, 115, 115, 116, 117, 117, 118, 119, 119,
         120, 121, 122, 122, 123, 123, 124, 124, 124, 125, 125, 125, 126, 126, 126, 127
     },
-    // dword_C0032CA8[11][128]
     {
           0,   1,   1,   1,   2,   2,   2,   2,   3,   3,   4,   5,   6,   7,   8,   9,
          11,  13,  14,  16,  18,  20,  22,  24,  26,  28,  30,  32,  34,  36,  39,  41,
@@ -396,8 +409,8 @@ void VLSG_SetFunc_GetTime(uint32_t (*get_time)(void))
 }
 
 
-static int32_t InitializeEffect(void);
-static int32_t EMPTY_DeinitializeEffect(void);
+static int32_t InitializeVelocityFunc(void);
+static int32_t EMPTY_DeinitializeVelocityFunc(void);
 static int32_t InitializeVariables(void);
 static int32_t EMPTY_DeinitializeVariables(void);
 static void CountActiveVoices(void);
@@ -406,7 +419,7 @@ static void ProcessMidiData(void);
 static Voice_Data *FindAvailableVoice(int32_t channel_num_2, int32_t note_number);
 static Voice_Data *FindVoice(int32_t channel_num_2, int32_t note_number);
 static void NoteOff(void);
-static void NoteOn(int32_t arg_0);
+static void NoteOn(int32_t ch);
 static void ControlChange(void);
 static void SystemExclusive(void);
 static int32_t InitializeReverbBuffer(void);
@@ -422,10 +435,10 @@ static void AddByteToMidiDataBuffer(uint8_t value);
 static uint8_t GetValueFromMidiDataBuffer(void);
 static int32_t InitializePhase(void);
 static int32_t EMPTY_DeinitializePhase(void);
-static void sub_C0036A20(Voice_Data *voice_data_ptr);
-static void sub_C0036A80(Voice_Data *voice_data_ptr);
-static void sub_C0036B00(Voice_Data *voice_data_ptr);
-static void sub_C0036C20(Voice_Data *voice_data_ptr);
+static void voice_set_panpot(Voice_Data *voice_data_ptr);
+static void voice_set_flags(Voice_Data *voice_data_ptr);
+static void voice_set_flags2(Voice_Data *voice_data_ptr);
+static void voice_set_amp(Voice_Data *voice_data_ptr);
 static void ProcessPhase(void);
 static int32_t sub_C0036FB0(int16_t value3);
 static void sub_C0036FE0(void);
@@ -434,9 +447,9 @@ static int32_t InitializeStructures(void);
 static int32_t EMPTY_DeinitializeStructures(void);
 static void ResetAllControllers(Channel_Data *channel_data_ptr);
 static void ResetChannel(Channel_Data *channel_data_ptr);
-static uint32_t sub_C00373A0(uint32_t arg_0, int32_t arg_4);
-static uint16_t sub_C0037400(void);
-static int16_t sub_C0037420(uint32_t arg_0);
+static uint32_t rom_change_bank(uint32_t bank, int32_t index);
+static uint16_t rom_read_word(void);
+static int16_t rom_read_word_at(uint32_t offset);
 
 
 static inline uint16_t READ_LE_UINT16(const uint8_t *ptr)
@@ -445,7 +458,7 @@ static inline uint16_t READ_LE_UINT16(const uint8_t *ptr)
 }
 
 
-int32_t VLSG_SetParameter(uint32_t type, uintptr_t value)
+VLSG_API_(VLSG_Bool) VLSG_SetParameter(uint32_t type, uintptr_t value)
 {
     uint32_t buffer_size;
     int32_t polyphony;
@@ -533,35 +546,35 @@ int32_t VLSG_SetParameter(uint32_t type, uintptr_t value)
     }
 }
 
-int32_t VLSG_PlaybackStart(void)
+VLSG_API_(VLSG_Bool) VLSG_Init(void)
 {
     current_polyphony = 0;
     dword_C0000000 = 0;
 
-    if (InitializeEffect())
+    if (InitializeVelocityFunc())
     {
-        return 0;
+        return VLSG_FALSE;
     }
 
     if (InitializeVariables())
     {
-        EMPTY_DeinitializeEffect();
-        return 0;
+        EMPTY_DeinitializeVelocityFunc();
+        return VLSG_FALSE;
     }
 
     if (InitializeReverbBuffer())
     {
         EMPTY_DeinitializeVariables();
-        EMPTY_DeinitializeEffect();
-        return 0;
+        EMPTY_DeinitializeVelocityFunc();
+        return VLSG_FALSE;
     }
 
     if (InitializePhase())
     {
         DeinitializeReverbBuffer();
         EMPTY_DeinitializeVariables();
-        EMPTY_DeinitializeEffect();
-        return 0;
+        EMPTY_DeinitializeVelocityFunc();
+        return VLSG_FALSE;
     }
 
     if (InitializeMidiDataBuffer())
@@ -569,8 +582,8 @@ int32_t VLSG_PlaybackStart(void)
         EMPTY_DeinitializePhase();
         DeinitializeReverbBuffer();
         EMPTY_DeinitializeVariables();
-        EMPTY_DeinitializeEffect();
-        return 0;
+        EMPTY_DeinitializeVelocityFunc();
+        return VLSG_FALSE;
     }
 
     if (InitializeStructures())
@@ -579,15 +592,15 @@ int32_t VLSG_PlaybackStart(void)
         EMPTY_DeinitializePhase();
         DeinitializeReverbBuffer();
         EMPTY_DeinitializeVariables();
-        EMPTY_DeinitializeEffect();
-        return 0;
+        EMPTY_DeinitializeVelocityFunc();
+        return VLSG_FALSE;
     }
 
     dword_C0000004 = 2972;
-    return 1;
+    return VLSG_TRUE;
 }
 
-int32_t VLSG_PlaybackStop(void)
+VLSG_API_(VLSG_Bool) VLSG_Exit(void)
 {
     current_polyphony = 0;
 
@@ -596,18 +609,19 @@ int32_t VLSG_PlaybackStop(void)
     EMPTY_DeinitializePhase();
     DeinitializeReverbBuffer();
     EMPTY_DeinitializeVariables();
-    return EMPTY_DeinitializeEffect();
+    return EMPTY_DeinitializeVelocityFunc();
 }
 
-void VLSG_AddMidiData(uint8_t *ptr, uint32_t len)
+VLSG_API_(void) VLSG_Write(const void* data, uint32_t len)
 {
+    const uint8_t* ptr = (const uint8_t*)(data);
     for (; len != 0; len--)
     {
         AddByteToMidiDataBuffer(*ptr++);
     }
 }
 
-int32_t VLSG_FillOutputBuffer(uint32_t output_buffer_counter)
+VLSG_API_(int32_t) VLSG_Buffer(uint32_t output_buffer_counter)
 {
     uint32_t time1, value1, time2, time3, offset1;
     int counter;
@@ -691,62 +705,82 @@ int32_t VLSG_FillOutputBuffer(uint32_t output_buffer_counter)
 }
 
 
-static int32_t InitializeEffect(void)
+int32_t VLSG_PlaybackStart(void)
 {
-    effect_type = 6;
+  return (int32_t)VLSG_Init();
+}
+
+int32_t VLSG_PlaybackStop(void)
+{
+  return (int32_t)VLSG_Exit();
+}
+
+void VLSG_AddMidiData(uint8_t *ptr, uint32_t len)
+{
+  VLSG_Write(ptr, len);
+}
+
+int32_t VLSG_FillOutputBuffer(uint32_t output_buffer_counter)
+{
+  return VLSG_Buffer(output_buffer_counter);
+}
+
+static int32_t InitializeVelocityFunc(void)
+{
+    velocity_func = 6;
     return 0;
 }
 
-static int32_t EMPTY_DeinitializeEffect(void)
+static int32_t EMPTY_DeinitializeVelocityFunc(void)
 {
     return 0;
 }
 
-static void sub_C0034890(Voice_Data *voice_data_ptr, int32_t arg_4)
+static void voice_set_freq(Voice_Data *voice_data_ptr, int32_t pitch)
 {
     Channel_Data *channel_ptr;
     int32_t value1;
     uint32_t value2;
 
     channel_ptr = &(channel_data[voice_data_ptr->channel_num_2 >> 1]);
-    value1 = (((int32_t)(channel_ptr->pitch_bend * channel_ptr->pitch_bend_sense)) >> 13) + arg_4 + channel_ptr->fine_tune + 2180;
+    value1 = (((int32_t)(channel_ptr->pitch_bend * channel_ptr->pitch_bend_sense)) >> 13) + pitch + channel_ptr->fine_tune + 2180;
     value2 = dword_C0032188[216 + (value1 >> 8)] * dword_C0032588[value1 & 0xFF];
 
-    voice_data_ptr->field_24 = value2;
+    voice_data_ptr->v_freq = value2;
     switch (output_frequency)
     {
         case 11025:
-            voice_data_ptr->field_24 = value2 >> 17;
+            voice_data_ptr->v_freq = value2 >> 17;
             break;
         case 22050:
-            voice_data_ptr->field_24 = value2 >> 18;
+            voice_data_ptr->v_freq = value2 >> 18;
             break;
         case 44100:
-            voice_data_ptr->field_24 = value2 >> 19;
+            voice_data_ptr->v_freq = value2 >> 19;
             break;
         case 16538:
-            voice_data_ptr->field_24 = (value2 / 3) >> 16;
+            voice_data_ptr->v_freq = (value2 / 3) >> 16;
             break;
         default:
-            voice_data_ptr->field_24 = (uint32_t)((value2 >> 17) * 11025) / output_frequency;
+            voice_data_ptr->v_freq = (uint32_t)((value2 >> 17) * 11025) / output_frequency;
             break;
     }
 }
 
-static int32_t sub_C0034970(Voice_Data *voice_data_ptr, int32_t arg_4)
+static int32_t voice_get_index(Voice_Data *voice_data_ptr, int32_t pitch)
 {
     uint32_t offset1;
     int32_t channel_num_2;
     int32_t note_number;
 
-    offset1 = sub_C00373A0(3, arg_4);
+    offset1 = rom_change_bank(3, pitch);
     channel_num_2 = (int16_t)(voice_data_ptr->channel_num_2 & ~1);
     note_number = voice_data_ptr->note_number;
 
     if (channel_num_2 != (2 * DRUM_CHANNEL))
     {
         note_number += channel_data[channel_num_2 >> 1].coarse_tune;
-        note_number += (voice_data_ptr->field_56 + 128) >> 8;
+        note_number += (voice_data_ptr->detune + 128) >> 8;
 
         if (note_number < 12)
         {
@@ -759,40 +793,40 @@ static int32_t sub_C0034970(Voice_Data *voice_data_ptr, int32_t arg_4)
         }
     }
 
-    return sub_C0037420(offset1 + 2 * note_number);
+    return rom_read_word_at(offset1 + 2 * note_number);
 }
 
-static void ProgramChange(struc_6 *stru6_channel_ptr, uint32_t program_number)
+static void ProgramChange(Program_Data *program_data_ptr, uint32_t program_number)
 {
     int16_t *data;
     int counter, index;
 
-    data = stru6_channel_ptr->data;
-    if (stru6_channel_ptr == &(stru_C0030080[DRUM_CHANNEL]))
+    if (program_data_ptr == &(program_data[DRUM_CHANNEL * 2]))
     {
         program_number = (program_number & 7) + 128;
     }
 
-    sub_C00373A0(1, sub_C0037420(sub_C00373A0(19, 0) + 2 * program_number));
+    rom_change_bank(1, rom_read_word_at(rom_change_bank(19, 0) + 2 * program_number));
 
     for (counter = 2; counter != 0; counter--)
     {
+        data = (int16_t*)program_data_ptr;
         for (index = 0; index < 14; index++)
         {
-            data[index] = (int16_t)sub_C0037400();
+            data[index] = (int16_t)rom_read_word();
         }
 
-        data[3] >>= 8;
-        data[4] >>= 8;
-        data[5] >>= 8;
-        data[6] >>= 8;
-        data[7] >>= 8;
-        data[8] >>= 8;
-        data[11] >>= 8;
-        data[12] >>= 8;
-        data[13] >>= 8;
+        program_data_ptr->field_06 >>= 8;
+        program_data_ptr->field_08 >>= 8;
+        program_data_ptr->panpot   >>= 8;
+        program_data_ptr->field_0C >>= 8;
+        program_data_ptr->field_0E >>= 8;
+        program_data_ptr->field_10 >>= 8;
+        program_data_ptr->field_16 >>= 8;
+        program_data_ptr->field_18 >>= 8;
+        program_data_ptr->field_1A >>= 8;
 
-        data += 14;
+        program_data_ptr++;
     }
 }
 
@@ -802,8 +836,8 @@ static void VoiceSoundOff(Voice_Data *voice_data_ptr)
     voice_data_ptr->vflags &= ~VFLAG_Value40;
     voice_data_ptr->vflags |= VFLAG_Value80;
     voice_data_ptr->vflags &= VFLAG_MaskC0;
-    sub_C0036B00(voice_data_ptr);
-    sub_C0036A80(voice_data_ptr);
+    voice_set_flags2(voice_data_ptr);
+    voice_set_flags(voice_data_ptr);
 }
 
 static void VoiceNoteOff(Voice_Data *voice_data_ptr)
@@ -813,8 +847,8 @@ static void VoiceNoteOff(Voice_Data *voice_data_ptr)
     if ((voice_data_ptr->vflags & VFLAG_Value40) == 0)
     {
         voice_data_ptr->vflags &= VFLAG_MaskC0;
-        sub_C0036B00(voice_data_ptr);
-        sub_C0036A80(voice_data_ptr);
+        voice_set_flags2(voice_data_ptr);
+        voice_set_flags(voice_data_ptr);
     }
 }
 
@@ -878,15 +912,15 @@ static void ControllerSettingsOff(int32_t channel_num)
                 {
                     voice_data[index].vflags &= VFLAG_MaskC0;
 
-                    sub_C0036B00(&(voice_data[index]));
-                    sub_C0036A80(&(voice_data[index]));
+                    voice_set_flags2(&(voice_data[index]));
+                    voice_set_flags(&(voice_data[index]));
                 }
             }
         }
     }
 }
 
-static void StartPlayingVoice(Voice_Data *voice_data_ptr, Channel_Data *channel_data_ptr, int16_t *stru6_data_ptr)
+static void StartPlayingVoice(Voice_Data *voice_data_ptr, Channel_Data *channel_data_ptr, Program_Data *program_data_ptr)
 {
     uint16_t value0;
     uint32_t value1;
@@ -897,46 +931,46 @@ static void StartPlayingVoice(Voice_Data *voice_data_ptr, Channel_Data *channel_
     int32_t value5;
     int32_t value6;
     int index;
-    const int32_t *drum_note_ptr;
+    const int32_t *drum_exc_pair;
     uint32_t value7;
     int32_t value8;
 
-    voice_data_ptr->field_56 = stru6_data_ptr[2];
-    voice_data_ptr->field_58 = stru6_data_ptr[7];
-    voice_data_ptr->field_5A = stru6_data_ptr[8];
-    voice_data_ptr->field_5C = stru6_data_ptr[9];
-    voice_data_ptr->field_5E = stru6_data_ptr[10];
+    voice_data_ptr->detune = program_data_ptr->detune;
+    voice_data_ptr->pgm_f0E = program_data_ptr->field_0E;
+    voice_data_ptr->pgm_f10 = program_data_ptr->field_10;
+    voice_data_ptr->index = program_data_ptr->index;
+    voice_data_ptr->pgm_f14 = program_data_ptr->field_14;
 
-    value1 = (uint16_t)sub_C0037420(sub_C00373A0(2, (stru6_data_ptr[1] & 0xFFF) + sub_C0034970(voice_data_ptr, (*(uint16_t *)stru6_data_ptr) >> 8)));
+    value1 = (uint16_t)rom_read_word_at(rom_change_bank(2, (program_data_ptr->field_02 & 0xFFF) + voice_get_index(voice_data_ptr, program_data_ptr->field_00 >> 8)));
     value2 = 0;
-    value0 = sub_C0037400();
+    value0 = rom_read_word();
     value1 |= (value0 & 0xFF) << 16;
-    voice_data_ptr->field_00 = value1 << 10;
+    voice_data_ptr->wv_fpos = value1 << 10;
 
     value1 = value0 >> 8;
-    value0 = sub_C0037400();
+    value0 = rom_read_word();
     value1 |= value0 << 8;
-    voice_data_ptr->field_04 = value1 & 0x3FFFFF;
+    voice_data_ptr->wv_end = value1 & 0x3FFFFF;
 
-    sub_C0037400();
-    value1 = sub_C0037400();
+    rom_read_word();
+    value1 = rom_read_word();
 
-    value0 = sub_C0037400();
+    value0 = rom_read_word();
     value1 |= (value0 & 0xFF) << 16;
-    voice_data_ptr->field_68 = value0 >> 8;
-    voice_data_ptr->field_66 = value0 & 0xFF;
-    voice_data_ptr->field_08 = value1 & 0x3FFFFF;
+    voice_data_ptr->wv_un1_hi = value0 >> 8;
+    voice_data_ptr->wv_un1_lo = value0 & 0xFF;
+    voice_data_ptr->wv_start = value1 & 0x3FFFFF;
 
-    voice_data_ptr->field_44 = sub_C0037400();
-    value0 = sub_C0037400();
+    voice_data_ptr->base_freq = rom_read_word();
+    value0 = rom_read_word();
 
-    voice_data_ptr->field_60 = value0 & 0xFF;
+    voice_data_ptr->wv_un3_lo = value0 & 0xFF;
     voice_data_ptr->field_0C[3] = 0;
     voice_data_ptr->field_0C[2] = 0;
-    voice_data_ptr->field_20 = ((voice_data_ptr->field_00 & ~0x400u) >> 10) - 2;
-    voice_data_ptr->field_1C = value0 >> 8;
+    voice_data_ptr->wv_pos = ((voice_data_ptr->wv_fpos & ~0x400u) >> 10) - 2;
+    voice_data_ptr->wv_un3_hi = value0 >> 8;
 
-    value3 = stru6_data_ptr[1] & 0x7000;
+    value3 = program_data_ptr->field_02 & 0x7000;
     if ( value3 != 0x7000 )
     {
         value2 = voice_data_ptr->note_number;
@@ -944,7 +978,7 @@ static void StartPlayingVoice(Voice_Data *voice_data_ptr, Channel_Data *channel_
         if (channel_num_2 != (2 * DRUM_CHANNEL))
         {
             value2 += channel_data[channel_num_2 >> 1].coarse_tune;
-            value2 += (voice_data_ptr->field_56 + 128) >> 8;
+            value2 += (voice_data_ptr->detune + 128) >> 8;
 
             if (value2 < 12)
             {
@@ -957,7 +991,7 @@ static void StartPlayingVoice(Voice_Data *voice_data_ptr, Channel_Data *channel_
             }
         }
 
-        value2 = (value2 - voice_data_ptr->field_68) << 8;
+        value2 = (value2 - voice_data_ptr->wv_un1_hi) << 8;
 
         for (; value3 != 0; value3 -= 0x1000)
         {
@@ -965,14 +999,14 @@ static void StartPlayingVoice(Voice_Data *voice_data_ptr, Channel_Data *channel_
         }
     }
 
-    value2 += voice_data_ptr->field_44;
-    value2 += (int8_t)voice_data_ptr->field_56;
-    voice_data_ptr->field_44 = value2;
-    sub_C0034890(voice_data_ptr, value2);
-    sub_C0036C20(voice_data_ptr);
+    value2 += voice_data_ptr->base_freq;
+    value2 += (int8_t)voice_data_ptr->detune;
+    voice_data_ptr->base_freq = value2;
+    voice_set_freq(voice_data_ptr, value2);
+    voice_set_amp(voice_data_ptr);
 
-    value4 = stru6_data_ptr[12];
-    value5 = dword_C0032AA8[effect_type + 1][voice_data_ptr->note_velocity];
+    value4 = program_data_ptr->field_18;
+    value5 = velocity_curves[velocity_func + 1][voice_data_ptr->note_velocity];
 
     if (value4 >= 0)
     {
@@ -983,7 +1017,7 @@ static void StartPlayingVoice(Voice_Data *voice_data_ptr, Channel_Data *channel_
         value4 = -value4;
     }
 
-    value6 = (127 - (((int32_t)(value4 * value5)) >> 7)) + stru6_data_ptr[13];
+    value6 = (127 - (((int32_t)(value4 * value5)) >> 7)) + program_data_ptr->field_1A;
 
     if ((channel_data_ptr->chflags & CHFLAG_Soft) != 0)
     {
@@ -992,7 +1026,7 @@ static void StartPlayingVoice(Voice_Data *voice_data_ptr, Channel_Data *channel_
 
     if (value6 > 127)
     {
-        voice_data_ptr->field_62 = 127;
+        voice_data_ptr->v_velocity = 127;
     }
     else
     {
@@ -1000,16 +1034,16 @@ static void StartPlayingVoice(Voice_Data *voice_data_ptr, Channel_Data *channel_
         {
             value6 = 0;
         }
-        voice_data_ptr->field_62 = value6;
+        voice_data_ptr->v_velocity = value6;
     }
 
     voice_data_ptr->field_4C = 0;
     voice_data_ptr->field_2C = 0;
     voice_data_ptr->field_52 = 0;
     voice_data_ptr->vflags = 0;
-    voice_data_ptr->field_4E = 0;
-    sub_C0036A80(voice_data_ptr);
-    sub_C0036B00(voice_data_ptr);
+    voice_data_ptr->v_vol = 0;
+    voice_set_flags(voice_data_ptr);
+    voice_set_flags2(voice_data_ptr);
 
     if ((channel_data_ptr->chflags & CHFLAG_Sostenuto) != 0)
     {
@@ -1033,25 +1067,24 @@ static void StartPlayingVoice(Voice_Data *voice_data_ptr, Channel_Data *channel_
 
     if ((voice_data_ptr->channel_num_2 & ~1) == (2 * DRUM_CHANNEL))
     {
-        voice_data_ptr->field_6A = sub_C0037420(sub_C00373A0(18, 0) + 4 * voice_data_ptr->note_number);
-        sub_C0036A20(voice_data_ptr);
+        voice_data_ptr->v_panpot = rom_read_word_at(rom_change_bank(18, 0) + 4 * voice_data_ptr->note_number);
+        voice_set_panpot(voice_data_ptr);
 
-// this is possibly a bug in the original code
-// maybe there were supposed to be two zero terminated lists (dword_C0032988 and dword_C0032A20)
-        drum_note_ptr = &(dword_C0032988[38]);
-// question: can program_change have a value of 135 ?
+        drum_exc_pair = &(drum_exc_map[DRUM_EXC_ORCHESTRA]);
+        // unless the orchestra drum is set
         if (channel_data[DRUM_CHANNEL].program_change != 135)
         {
-            drum_note_ptr = &(dword_C0032988[0]);
+            // look for hi-hat etc.
+            drum_exc_pair = &(drum_exc_map[0]);
         }
 
-        for (; drum_note_ptr[0] != 0; drum_note_ptr += 2)
+        for (; drum_exc_pair[0] != 0; drum_exc_pair += 2)
         {
-            if (drum_note_ptr[0] != voice_data_ptr->note_number) continue;
+            if (drum_exc_pair[0] != voice_data_ptr->note_number) continue;
 
             for (index = 0; index < maximum_polyphony; index++)
             {
-                if (voice_data[index].note_number == drum_note_ptr[1])
+                if (voice_data[index].note_number == drum_exc_pair[1])
                 {
                     if ((voice_data[index].channel_num_2 & ~1) == (2 * DRUM_CHANNEL))
                     {
@@ -1063,8 +1096,8 @@ static void StartPlayingVoice(Voice_Data *voice_data_ptr, Channel_Data *channel_
     }
     else
     {
-        value7 = sub_C00373A0(17, 0);
-        value8 = channel_data_ptr->pan + stru6_data_ptr[5];
+        value7 = rom_change_bank(17, 0);
+        value8 = channel_data_ptr->pan + program_data_ptr->panpot;
 
         if (value8 > 127)
         {
@@ -1075,8 +1108,8 @@ static void StartPlayingVoice(Voice_Data *voice_data_ptr, Channel_Data *channel_
             value8 = -127;
         }
 
-        voice_data_ptr->field_6A = sub_C0037420(value7 + 2 * value8 + 256);
-        sub_C0036A20(voice_data_ptr);
+        voice_data_ptr->v_panpot = rom_read_word_at(value7 + 2 * value8 + 256);
+        voice_set_panpot(voice_data_ptr);
     }
 }
 
@@ -1245,7 +1278,7 @@ static void ProcessMidiData(void)
             event_type = midi_value & 0xF0;
             event_data[0] = midi_value;
             channel_data_ptr = &(channel_data[midi_value & 0x0F]);
-            stru6_ptr = &(stru_C0030080[midi_value & 0x0F]);
+            program_data_ptr = &(program_data[(midi_value & 0x0F) * 2]);
 
             continue;
         }
@@ -1272,7 +1305,7 @@ static void ProcessMidiData(void)
                 {
                     NoteOn(0);
 
-                    if (stru6_ptr->data[1] & 0x8000)
+                    if (program_data_ptr->field_02 & 0x8000)
                     {
                         NoteOn(1);
                     }
@@ -1299,12 +1332,12 @@ static void ProcessMidiData(void)
                     if (drum_kit_index >= 8) break;
 
                     channel_data_ptr->program_change = drum_kit_numbers[drum_kit_index];
-                    ProgramChange(stru6_ptr, drum_kit_numbers[drum_kit_index]);
+                    ProgramChange(program_data_ptr, drum_kit_numbers[drum_kit_index]);
                 }
                 else
                 {
                     channel_data_ptr->program_change = event_data[1];
-                    ProgramChange(stru6_ptr, event_data[1]);
+                    ProgramChange(program_data_ptr, event_data[1]);
                 }
                 break;
 
@@ -1431,20 +1464,20 @@ static void NoteOff(void)
     }
 }
 
-static void NoteOn(int32_t arg_0)
+static void NoteOn(int32_t part)
 {
     Voice_Data *voice;
 
-    voice = FindAvailableVoice(arg_0 + 2 * (event_data[0] & 0x0F), event_data[1]);
+    voice = FindAvailableVoice(part + 2 * (event_data[0] & 0x0F), event_data[1]);
     if (voice->note_number != 255)
     {
         VoiceSoundOff(voice);
     }
 
-    voice->channel_num_2 = arg_0 + 2 * (event_data[0] & 0x0F);
+    voice->channel_num_2 = part + 2 * (event_data[0] & 0x0F);
     voice->note_number = event_data[1];
     voice->note_velocity = event_data[2];
-    StartPlayingVoice(voice, channel_data_ptr, &(stru6_ptr->data[14 * arg_0]));
+    StartPlayingVoice(voice, channel_data_ptr, &program_data_ptr[part]);
 }
 
 static void ControlChange(void)
@@ -1590,7 +1623,7 @@ static void SystemExclusive(void)
 
         for (index = 0; index < MIDI_CHANNELS; index++)
         {
-            ProgramChange(&(stru_C0030080[index]), 0);
+            ProgramChange(&(program_data[index * 2]), 0);
         }
 
         return;
@@ -1650,43 +1683,43 @@ static void SystemExclusive(void)
         }
     }
 
-    // change effect
+    // change velocity curve
     if (event_data[0] == 0xF0 && event_data[1] == 0x44 && event_data[2] == 0x0E && event_data[3] == 0x03)
     {
         switch (event_data[4])
         {
             case 0x40:
-                effect_type = 0;
+                velocity_func = 0;
                 return;
             case 0x41:
-                effect_type = 1;
+                velocity_func = 1;
                 return;
             case 0x42:
-                effect_type = 2;
+                velocity_func = 2;
                 return;
             case 0x43:
-                effect_type = 3;
+                velocity_func = 3;
                 return;
             case 0x44:
-                effect_type = 4;
+                velocity_func = 4;
                 return;
             case 0x45:
-                effect_type = 5;
+                velocity_func = 5;
                 return;
             case 0x46:
-                effect_type = 6;
+                velocity_func = 6;
                 return;
             case 0x47:
-                effect_type = 7;
+                velocity_func = 7;
                 return;
             case 0x48:
-                effect_type = 8;
+                velocity_func = 8;
                 return;
             case 0x49:
-                effect_type = 9;
+                velocity_func = 9;
                 return;
             case 0x4A:
-                effect_type = 10;
+                velocity_func = 10;
                 return;
             default:
                 break;
@@ -1783,86 +1816,86 @@ static void GenerateOutputData(uint8_t *output_ptr, uint32_t offset1, uint32_t o
         right = 0;
         for (index1 = 0; index1 <= max_active_index; index1++)
         {
-            value1 = voice_data[index1].field_04;
-            value2 = voice_data[index1].field_00 >> 10;
+            value1 = voice_data[index1].wv_end;
+            value2 = voice_data[index1].wv_fpos >> 10;
             if (value2 >= value1)
             {
-                if (value1 == voice_data[index1].field_08)
+                if (value1 == voice_data[index1].wv_start)
                 {
                     voice_data[index1].note_number = 255;
                     voice_data[index1].field_28 = 0;
                     continue;
                 }
 
-                value3 = (value2 + (voice_data[index1].field_08 & 1) - value1) & ~1;
+                value3 = (value2 + (voice_data[index1].wv_start & 1) - value1) & ~1;
                 if (value3 >= 10)
                 {
-                    voice_data[index1].field_00 += (8 - value3) << 10;
+                    voice_data[index1].wv_fpos += (8 - value3) << 10;
                     value3 = 8;
                 }
 
-                rom_ptr = &(romsxgm_ptr[voice_data[index1].field_04]);
+                rom_ptr = &(romsxgm_ptr[voice_data[index1].wv_end]);
                 value4 = ((int32_t)(READ_LE_UINT16(&(rom_ptr[value3])) << 17)) >> 17;
-                voice_data[index1].field_1C = (((int32_t)READ_LE_UINT16(&(rom_ptr[10]))) >> (value3 + (value3 >> 1))) & 7;
+                voice_data[index1].wv_un3_hi = (((int32_t)READ_LE_UINT16(&(rom_ptr[10]))) >> (value3 + (value3 >> 1))) & 7;
 
                 voice_data[index1].field_0C[1] = value4;
-                voice_data[index1].field_0C[0] = value4 - ((((int32_t)(READ_LE_UINT16(&(romsxgm_ptr[voice_data[index1].field_08 & ~1])) << 16)) >> 25) << voice_data[index1].field_1C);
+                voice_data[index1].field_0C[0] = value4 - ((((int32_t)(READ_LE_UINT16(&(romsxgm_ptr[voice_data[index1].wv_start & ~1])) << 16)) >> 25) << voice_data[index1].wv_un3_hi);
 
-                voice_data[index1].field_00 += (voice_data[index1].field_08 - voice_data[index1].field_04) << 10;
-                value2 = voice_data[index1].field_00 >> 10;
-                voice_data[index1].field_20 = (value2 & ~1) + 2;
-                value5 = READ_LE_UINT16(&(romsxgm_ptr[voice_data[index1].field_20]));
-                voice_data[index1].field_1C += dword_C00342C0[value5 & 3];
-                voice_data[index1].field_0C[2] = voice_data[index1].field_0C[1] + ((((int32_t)(value5 << 23)) >> 25) << voice_data[index1].field_1C);
-                voice_data[index1].field_0C[3] = voice_data[index1].field_0C[2] + ((((int32_t)(value5 << 16)) >> 25) << voice_data[index1].field_1C);
+                voice_data[index1].wv_fpos += (voice_data[index1].wv_start - voice_data[index1].wv_end) << 10;
+                value2 = voice_data[index1].wv_fpos >> 10;
+                voice_data[index1].wv_pos = (value2 & ~1) + 2;
+                value5 = READ_LE_UINT16(&(romsxgm_ptr[voice_data[index1].wv_pos]));
+                voice_data[index1].wv_un3_hi += dword_C00342C0[value5 & 3];
+                voice_data[index1].field_0C[2] = voice_data[index1].field_0C[1] + ((((int32_t)(value5 << 23)) >> 25) << voice_data[index1].wv_un3_hi);
+                voice_data[index1].field_0C[3] = voice_data[index1].field_0C[2] + ((((int32_t)(value5 << 16)) >> 25) << voice_data[index1].wv_un3_hi);
             }
             else
             {
-                while (voice_data[index1].field_20 <= (value2 & ~1))
+                while (voice_data[index1].wv_pos <= (value2 & ~1))
                 {
-                    voice_data[index1].field_20 += 2;
-                    if (voice_data[index1].field_04 <= voice_data[index1].field_20)
+                    voice_data[index1].wv_pos += 2;
+                    if (voice_data[index1].wv_end <= voice_data[index1].wv_pos)
                     {
                         voice_data[index1].field_0C[0] = voice_data[index1].field_0C[2];
                         voice_data[index1].field_0C[1] = voice_data[index1].field_0C[3];
 
-                        if ((voice_data[index1].field_08 & 1) != 0)
+                        if ((voice_data[index1].wv_start & 1) != 0)
                         {
-                            rom_ptr = &(romsxgm_ptr[voice_data[index1].field_04]);
+                            rom_ptr = &(romsxgm_ptr[voice_data[index1].wv_end]);
                             value4 = ((int32_t)(READ_LE_UINT16(rom_ptr) << 17)) >> 17;
-                            voice_data[index1].field_1C = rom_ptr[10] & 7;
+                            voice_data[index1].wv_un3_hi = rom_ptr[10] & 7;
 
                             voice_data[index1].field_0C[2] = value4;
                         }
                         else
                         {
-                            rom_ptr = &(romsxgm_ptr[voice_data[index1].field_04]);
+                            rom_ptr = &(romsxgm_ptr[voice_data[index1].wv_end]);
                             value4 = ((int32_t)(READ_LE_UINT16(rom_ptr) << 17)) >> 17;
-                            voice_data[index1].field_1C = rom_ptr[10] & 7;
+                            voice_data[index1].wv_un3_hi = rom_ptr[10] & 7;
 
                             voice_data[index1].field_0C[3] = value4;
-                            voice_data[index1].field_0C[2] = value4 - ((((int32_t)(READ_LE_UINT16(&(romsxgm_ptr[voice_data[index1].field_08 & ~1])) << 16)) >> 25) << voice_data[index1].field_1C);
+                            voice_data[index1].field_0C[2] = value4 - ((((int32_t)(READ_LE_UINT16(&(romsxgm_ptr[voice_data[index1].wv_start & ~1])) << 16)) >> 25) << voice_data[index1].wv_un3_hi);
                         }
                     }
                     else
                     {
-                        value5 = READ_LE_UINT16(&(romsxgm_ptr[voice_data[index1].field_20]));
+                        value5 = READ_LE_UINT16(&(romsxgm_ptr[voice_data[index1].wv_pos]));
                         voice_data[index1].field_0C[0] = voice_data[index1].field_0C[2];
                         voice_data[index1].field_0C[1] = voice_data[index1].field_0C[3];
-                        voice_data[index1].field_1C += dword_C00342C0[value5 & 3];
-                        voice_data[index1].field_0C[2] = voice_data[index1].field_0C[1] + ((((int32_t)(value5 << 23)) >> 25) << voice_data[index1].field_1C);
-                        voice_data[index1].field_0C[3] = voice_data[index1].field_0C[2] + ((((int32_t)(value5 << 16)) >> 25) << voice_data[index1].field_1C);
+                        voice_data[index1].wv_un3_hi += dword_C00342C0[value5 & 3];
+                        voice_data[index1].field_0C[2] = voice_data[index1].field_0C[1] + ((((int32_t)(value5 << 23)) >> 25) << voice_data[index1].wv_un3_hi);
+                        voice_data[index1].field_0C[3] = voice_data[index1].field_0C[2] + ((((int32_t)(value5 << 16)) >> 25) << voice_data[index1].wv_un3_hi);
                     }
                 }
             }
 
             value7 = voice_data[index1].field_0C[value2 & 1];
-            value7 += ((int32_t)((voice_data[index1].field_0C[(value2 & 1) + 1] - value7) * (voice_data[index1].field_00 & 0x3FF))) >> 10;
+            value7 += ((int32_t)((voice_data[index1].field_0C[(value2 & 1) + 1] - value7) * (voice_data[index1].wv_fpos & 0x3FF))) >> 10;
             value6 = ((int32_t)(15 * voice_data[index1].field_2C + voice_data[index1].field_38)) >> 4;
             value7 = ((int32_t)(value7 * value6)) >> 12;
 
             voice_data[index1].field_2C = value6;
-            voice_data[index1].field_00 += voice_data[index1].field_24;
+            voice_data[index1].wv_fpos += voice_data[index1].v_freq;
             left += value7 >> voice_data[index1].field_30;
             right += value7 >> voice_data[index1].field_34;
         }
@@ -2006,17 +2039,17 @@ static int32_t EMPTY_DeinitializePhase(void)
     return 0;
 }
 
-static void sub_C0036A20(Voice_Data *voice_data_ptr)
+static void voice_set_panpot(Voice_Data *voice_data_ptr)
 {
-    voice_data_ptr->field_34 = sub_C0036FB0(voice_data_ptr->field_6A >> 8);
-    voice_data_ptr->field_30 = sub_C0036FB0(voice_data_ptr->field_6A & 0x1F);
+    voice_data_ptr->field_34 = sub_C0036FB0(voice_data_ptr->v_panpot >> 8);
+    voice_data_ptr->field_30 = sub_C0036FB0(voice_data_ptr->v_panpot & 0x1F);
 }
 
-static void sub_C0036A80(Voice_Data *voice_data_ptr)
+static void voice_set_flags(Voice_Data *voice_data_ptr)
 {
     uint32_t offset1;
 
-    offset1 = sub_C00373A0(10, (voice_data_ptr->field_5C >> 8) + sub_C0034970(voice_data_ptr, voice_data_ptr->field_5C & 0xFF));
+    offset1 = rom_change_bank(10, (voice_data_ptr->index >> 8) + voice_get_index(voice_data_ptr, voice_data_ptr->index & 0xFF));
     offset1 += 4 * (voice_data_ptr->vflags & VFLAG_Mask07);
 
     if ((voice_data_ptr->vflags & VFLAG_MaskC0) == VFLAG_Value80)
@@ -2024,19 +2057,19 @@ static void sub_C0036A80(Voice_Data *voice_data_ptr)
         offset1 += 32;
     }
 
-    voice_data_ptr->field_48 = sub_C0037420(offset1);
-    voice_data_ptr->field_4A = sub_C0037400();
+    voice_data_ptr->field_48 = rom_read_word_at(offset1);
+    voice_data_ptr->field_4A = rom_read_word();
     voice_data_ptr->vflags = (voice_data_ptr->vflags & VFLAG_NotMask07) | (voice_data_ptr->field_48 & 7);
 }
 
-static void sub_C0036B00(Voice_Data *voice_data_ptr)
+static void voice_set_flags2(Voice_Data *voice_data_ptr)
 {
     uint32_t offset1;
     uint16_t value1;
     int32_t value2;
     int32_t value3;
 
-    offset1 = sub_C00373A0(11, (voice_data_ptr->field_5E >> 8) + sub_C0034970(voice_data_ptr, voice_data_ptr->field_5E & 0xFF));
+    offset1 = rom_change_bank(11, (voice_data_ptr->pgm_f14 >> 8) + voice_get_index(voice_data_ptr, voice_data_ptr->pgm_f14 & 0xFF));
     offset1 += (voice_data_ptr->vflags & VFLAG_Mask38) >> 1;
 
     if ((voice_data_ptr->vflags & VFLAG_MaskC0) == VFLAG_Value80)
@@ -2044,9 +2077,9 @@ static void sub_C0036B00(Voice_Data *voice_data_ptr)
         offset1 += 32;
     }
 
-    value1 = sub_C0037420(offset1);
-    value1 = ((voice_data_ptr->field_62 * (value1 >> 8)) & 0xFF00) | (value1 & 0xFF);
-    voice_data_ptr->field_4E = value1;
+    value1 = rom_read_word_at(offset1);
+    value1 = ((voice_data_ptr->v_velocity * (value1 >> 8)) & 0xFF00) | (value1 & 0xFF);
+    voice_data_ptr->v_vol = value1;
 
     if ((((voice_data_ptr->vflags & VFLAG_Mask38) >> 3) == value1) && (voice_data_ptr->field_52 == 0))
     {
@@ -2054,7 +2087,7 @@ static void sub_C0036B00(Voice_Data *voice_data_ptr)
         return;
     }
 
-    value2 = sub_C0037400() >> 8;
+    value2 = rom_read_word() >> 8;
     if ((value2 & 0xE0) == 0x20)
     {
         value3 = (value2 & 0x1F) << 8;
@@ -2080,19 +2113,19 @@ static void sub_C0036B00(Voice_Data *voice_data_ptr)
         value3 = 0x7FFF;
     }
 
-    voice_data_ptr->vflags = (voice_data_ptr->vflags & VFLAG_NotMask38) | ((voice_data_ptr->field_4E & 7) << 3);
+    voice_data_ptr->vflags = (voice_data_ptr->vflags & VFLAG_NotMask38) | ((voice_data_ptr->v_vol & 7) << 3);
     voice_data_ptr->field_50 = value3;
 }
 
-static void sub_C0036C20(Voice_Data *voice_data_ptr)
+static void voice_set_amp(Voice_Data *voice_data_ptr)
 {
     int32_t value0;
 
     value0 = channel_data[voice_data_ptr->channel_num_2 >> 1].expression * channel_data[voice_data_ptr->channel_num_2 >> 1].volume;
     value0 = ((int32_t)(value0 * value0)) >> 13;
-    voice_data_ptr->field_64 = ((int32_t)(value0 * voice_data_ptr->field_60)) >> 7;
+    voice_data_ptr->vol = ((int32_t)(value0 * voice_data_ptr->wv_un3_lo)) >> 7;
 
-    sub_C0036A20(voice_data_ptr);
+    voice_set_panpot(voice_data_ptr);
 }
 
 static void ProcessPhase(void)
@@ -2112,7 +2145,7 @@ static void ProcessPhase(void)
             {
                 if (voice_data[index].note_number != 255)
                 {
-                    voice_data[index].field_54 += dword_C0032188[voice_data[index].field_5A + 112];
+                    voice_data[index].field_54 += dword_C0032188[voice_data[index].pgm_f10 + 112];
                 }
             }
 
@@ -2135,7 +2168,7 @@ static void ProcessPhase(void)
                 if (voice_data[index].note_number != 255)
                 {
                     channel = &(channel_data[voice_data[index].channel_num_2 >> 1]);
-                    value = voice_data[index].field_58 + channel->channel_pressure + channel->modulation;
+                    value = voice_data[index].pgm_f0E + channel->channel_pressure + channel->modulation;
                     if (value > 127)
                     {
                         value = 127;
@@ -2145,7 +2178,7 @@ static void ProcessPhase(void)
                         value = 0;
                     }
 
-                    sub_C0034890(&(voice_data[index]), (int16_t)(voice_data[index].field_44 + (((int32_t)(value * (voice_data[index].field_54 >> 8))) >> 7) + (voice_data[index].field_4C >> 3)));
+                    voice_set_freq(&(voice_data[index]), (int16_t)(voice_data[index].base_freq + (((int32_t)(value * (voice_data[index].field_54 >> 8))) >> 7) + (voice_data[index].field_4C >> 3)));
                 }
             }
 
@@ -2156,7 +2189,7 @@ static void ProcessPhase(void)
             {
                 if (voice_data[index].note_number != 255)
                 {
-                    sub_C0036C20(&(voice_data[index]));
+                    voice_set_amp(&(voice_data[index]));
                 }
             }
 
@@ -2180,7 +2213,7 @@ static void ProcessPhase(void)
                 if (voice_data[index].note_number != 255)
                 {
                     channel = &(channel_data[voice_data[index].channel_num_2 >> 1]);
-                    value = voice_data[index].field_58 + channel->channel_pressure + channel->modulation;
+                    value = voice_data[index].pgm_f0E + channel->channel_pressure + channel->modulation;
                     if (value > 127)
                     {
                         value = 127;
@@ -2190,7 +2223,7 @@ static void ProcessPhase(void)
                         value = 0;
                     }
 
-                    sub_C0034890(&(voice_data[index]), (int16_t)(voice_data[index].field_44 + (((int32_t)(value * (voice_data[index].field_54 >> 8))) >> 7) + (voice_data[index].field_4C >> 3)));
+                    voice_set_freq(&(voice_data[index]), (int16_t)(voice_data[index].base_freq + (((int32_t)(value * (voice_data[index].field_54 >> 8))) >> 7) + (voice_data[index].field_4C >> 3)));
                 }
             }
 
@@ -2261,7 +2294,7 @@ static void sub_C0036FE0(void)
 
         voice_data[index].field_4C = value1;
 
-        sub_C0036A80(&(voice_data[index]));
+        voice_set_flags(&(voice_data[index]));
     }
 }
 
@@ -2276,7 +2309,7 @@ static void sub_C0037140(void)
 
         value1 = voice_data[index].field_52;
         value2 = voice_data[index].field_50;
-        value3 = voice_data[index].field_4E & 0xFF00;
+        value3 = voice_data[index].v_vol & 0xFF00;
 
         if (value3 > value1)
         {
@@ -2304,7 +2337,7 @@ static void sub_C0037140(void)
             voice_data[index].field_52 = value3;
             index2 = (value3 & 0x7fff) >> 11;
             voice_data[index].field_28 = word_C00342D0[index2] + (((int32_t)((word_C00342D0[index2 + 1] - word_C00342D0[index2]) * (value3 & 0x07ff))) >> 11);
-            sub_C0036B00(&(voice_data[index]));
+            voice_set_flags2(&(voice_data[index]));
         }
         else
         {
@@ -2313,7 +2346,7 @@ static void sub_C0037140(void)
             voice_data[index].field_28 = word_C00342D0[index2] + (((int32_t)((word_C00342D0[index2 + 1] - word_C00342D0[index2]) * (value1 & 0x07ff))) >> 11);
         }
 
-        voice_data[index].field_38 = ((int32_t)(voice_data[index].field_28 * voice_data[index].field_64)) >> 14;
+        voice_data[index].field_38 = ((int32_t)(voice_data[index].field_28 * voice_data[index].vol)) >> 14;
     }
 }
 
@@ -2347,7 +2380,7 @@ static int32_t InitializeStructures(void)
 
     for (index = 0; index < MIDI_CHANNELS; index++)
     {
-        ProgramChange(&(stru_C0030080[index]), 0);
+        ProgramChange(&(program_data[index * 2]), 0);
     }
 
     return 0;
@@ -2390,21 +2423,21 @@ static void ResetChannel(Channel_Data *channel_data_ptr)
     channel_data_ptr->data_entry_LSB = 0;
 }
 
-static uint32_t sub_C00373A0(uint32_t arg_0, int32_t arg_4)
+static uint32_t rom_change_bank(uint32_t bank, int32_t index)
 {
     const uint8_t *address1;
     uint32_t offset1;
     int32_t offset2;
 
-    address1 = &(romsxgm_ptr[4 * arg_0 + 65588]);
+    address1 = &(romsxgm_ptr[4 * bank + 65588]);
     offset1 = (READ_LE_UINT16(address1 + 2) << 8) + (READ_LE_UINT16(address1) >> 8);
-    offset2 = 4 + arg_4 * (int16_t)READ_LE_UINT16(romsxgm_ptr + offset1 + 2);
+    offset2 = 4 + index * (int16_t)READ_LE_UINT16(romsxgm_ptr + offset1 + 2);
 
     rom_offset = offset1 + offset2;
     return rom_offset;
 }
 
-static uint16_t sub_C0037400(void)
+static uint16_t rom_read_word(void)
 {
     uint16_t result;
 
@@ -2413,9 +2446,9 @@ static uint16_t sub_C0037400(void)
     return result;
 }
 
-static int16_t sub_C0037420(uint32_t arg_0)
+static int16_t rom_read_word_at(uint32_t offset)
 {
-    rom_offset = arg_0 + 2;
-    return (int16_t)READ_LE_UINT16(romsxgm_ptr + arg_0);
+    rom_offset = offset + 2;
+    return (int16_t)READ_LE_UINT16(romsxgm_ptr + offset);
 }
 

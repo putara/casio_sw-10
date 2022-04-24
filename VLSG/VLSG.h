@@ -27,6 +27,31 @@
 
 #include <stdint.h>
 
+#if defined(VLSG_STATIC) || !defined(WIN32)
+#define VLSG_IMPORT
+#define VLSG_EXPORT
+#define VLSG_CALLTYPE
+#else
+#define VLSG_IMPORT         DECLSPEC_IMPORT
+#define VLSG_EXPORT         DECLSPEC_EXPORT
+#define VLSG_CALLTYPE       WINAPI
+#endif
+
+#ifdef VLSG_DLL
+#define VLSG_API            VLSG_EXPORT int VLSG_CALLTYPE
+#define VLSG_API_(type)     VLSG_EXPORT type VLSG_CALLTYPE
+#else
+#define VLSG_API            VLSG_IMPORT int VLSG_CALLTYPE
+#define VLSG_API_(type)     VLSG_IMPORT type VLSG_CALLTYPE
+#endif
+
+
+#define VLSG_FALSE  0
+#define VLSG_TRUE   1
+
+typedef int VLSG_Bool;
+
+
 enum ParameterType
 {
     PARAMETER_OutputBuffer  = 1,
@@ -36,11 +61,16 @@ enum ParameterType
     PARAMETER_Effect        = 5,
 };
 
-uint32_t VLSG_GetVersion(void);
-const char *VLSG_GetName(void);
-void VLSG_SetFunc_GetTime(uint32_t (*get_time)(void));
+VLSG_API_(uint32_t) VLSG_GetVersion(void);
+VLSG_API_(const char*) VLSG_GetName(void);
+VLSG_API_(void) VLSG_SetFunc_GetTime(uint32_t (*get_time)(void));
 
-int32_t VLSG_SetParameter(uint32_t type, uintptr_t value);
+VLSG_API_(VLSG_Bool)  VLSG_SetParameter(uint32_t type, uintptr_t value);
+VLSG_API_(VLSG_Bool)  VLSG_Init(void);
+VLSG_API_(VLSG_Bool)  VLSG_Exit(void);
+VLSG_API_(void)       VLSG_Write(const void* data, uint32_t len);
+VLSG_API_(int32_t)    VLSG_Buffer(uint32_t output_buffer_counter);
+
 int32_t VLSG_PlaybackStart(void);
 int32_t VLSG_PlaybackStop(void);
 void VLSG_AddMidiData(uint8_t *ptr, uint32_t len);
