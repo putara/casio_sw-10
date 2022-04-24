@@ -134,7 +134,7 @@ enum Channel_Flags
 
 
 static const char VLSG_Name[] = "CASIO SW-10";
-static uint32_t (*VLSG_GetTime)(void);
+static VLSG_GETTIME get_time_func;
 
 static uint32_t dword_C0000000;
 static uint32_t dword_C0000004;
@@ -393,21 +393,25 @@ static const int32_t dword_C00342C0[4] = { 0, 1, 2, -1 };
 static const uint16_t word_C00342D0[17] = { 0, 250, 561, 949, 1430, 2030, 2776, 3704, 4858, 6295, 8083, 10307, 13075, 16519, 20803, 26135, 32768 };
 
 
-uint32_t VLSG_GetVersion(void)
+VLSG_API_(uint32_t) VLSG_GetVersion(void)
 {
     return 0x103;
 }
 
-const char *VLSG_GetName(void)
+VLSG_API_(const char*) VLSG_GetName(void)
 {
     return VLSG_Name;
 }
 
-void VLSG_SetFunc_GetTime(uint32_t (*get_time)(void))
+VLSG_API_(uint32_t) VLSG_GetTime(void)
 {
-    VLSG_GetTime = get_time;
+    return get_time_func();
 }
 
+VLSG_API_(void) VLSG_SetFunc_GetTime(VLSG_GETTIME get_time)
+{
+    get_time_func = get_time;
+}
 
 static int32_t InitializeVelocityFunc(void);
 static int32_t EMPTY_DeinitializeVelocityFunc(void);
@@ -460,90 +464,122 @@ static inline uint16_t READ_LE_UINT16(const uint8_t *ptr)
 
 VLSG_API_(VLSG_Bool) VLSG_SetParameter(uint32_t type, uintptr_t value)
 {
-    uint32_t buffer_size;
-    int32_t polyphony;
-
     switch (type)
     {
         case PARAMETER_OutputBuffer:
-            output_data_ptr = (uint8_t *)value;
-            return 1;
+            return VLSG_SetWaveBuffer((void*)value);
 
         case PARAMETER_ROMAddress:
-            romsxgm_ptr = (const uint8_t *)value;
-            return 1;
+            return VLSG_SetRomAddress((const void*)value);
 
         case PARAMETER_Frequency:
-            if (value == 0)
-            {
-                output_frequency = 11025;
-                output_size_para = 64;
-                buffer_size = 4096;
+            if (value == 0) {
+                return VLSG_SetFrequency(11025);
             }
-            else if (value == 2)
-            {
-                output_frequency = 44100;
-                output_size_para = 256;
-                buffer_size = 16384;
+            if (value == 2) {
+                return VLSG_SetFrequency(44100);
             }
-            else
-            {
-                output_frequency = 22050;
-                output_size_para = 128;
-                buffer_size = 8192;
-            }
-
-            output_buffer_size_samples = buffer_size;
-            output_buffer_size_bytes = 4 * buffer_size;
-            InitializeReverbBuffer();
-            return 1;
+            return VLSG_SetFrequency(22050);
 
         case PARAMETER_Polyphony:
-            if (value == 0x11)
-            {
-                polyphony = 32;
+            if (value == 0x11) {
+                return VLSG_SetPolyphony(32);
             }
-            else if (value == 0x12)
-            {
-                polyphony = 48;
+            if (value == 0x12) {
+                return VLSG_SetPolyphony(48);
             }
-            else if (value == 0x13)
-            {
-                polyphony = 64;
+            if (value == 0x13) {
+                return VLSG_SetPolyphony(64);
             }
-            else
-            {
-                polyphony = 24;
-            }
-
-            maximum_polyphony = polyphony;
-            maximum_polyphony_new_value = polyphony;
-            return 1;
+            return VLSG_SetPolyphony(24);
 
         case PARAMETER_Effect:
-            effect_param_value = value;
-            DisableReverb();
-            if (effect_param_value == 0x20)
-            {
-                DisableReverb();
-                return 1;
+            if (value == 0x20) {
+                return VLSG_SetEffect(0);
             }
-            else if (effect_param_value == 0x22)
-            {
-                SetReverbShift(0);
-                EnableReverb();
-                return 1;
+            if (value == 0x22) {
+                return VLSG_SetEffect(2);
             }
-            else
-            {
-                SetReverbShift(1);
-                EnableReverb();
-                return 1;
-            }
+            return VLSG_SetEffect(1);
 
         default:
-            return 0;
+            return VLSG_FALSE;
     }
+}
+
+VLSG_API_(VLSG_Bool) VLSG_SetWaveBuffer(void* ptr)
+{
+    output_data_ptr = (uint8_t*)ptr;
+    return VLSG_TRUE;
+}
+
+VLSG_API_(VLSG_Bool) VLSG_SetRomAddress(const void* ptr)
+{
+    romsxgm_ptr = (const uint8_t*)ptr;
+    return VLSG_TRUE;
+}
+
+VLSG_API_(VLSG_Bool) VLSG_SetFrequency(unsigned int frequency)
+{
+    uint32_t buffer_size;
+
+    if (frequency == 11025) {
+        output_frequency = 11025;
+        output_size_para = 64;
+        buffer_size = 4096;
+    } else if (frequency == 44100) {
+        output_frequency = 44100;
+        output_size_para = 256;
+        buffer_size = 16384;
+    } else if (frequency == 22050) {
+        output_frequency = 22050;
+        output_size_para = 128;
+        buffer_size = 8192;
+    } else {
+        return VLSG_FALSE;
+    }
+
+    output_buffer_size_samples = buffer_size;
+    output_buffer_size_bytes = 4 * buffer_size;
+    InitializeReverbBuffer();
+    return VLSG_TRUE;
+}
+
+VLSG_API_(VLSG_Bool) VLSG_SetPolyphony(unsigned int poly)
+{
+    int32_t polyphony;
+
+    if (poly == 24 || poly == 32 || poly == 48 || poly == 64) {
+        polyphony = (int32_t)poly;
+    } else {
+        return VLSG_FALSE;
+    }
+
+    maximum_polyphony = polyphony;
+    maximum_polyphony_new_value = polyphony;
+    return VLSG_TRUE;
+}
+
+VLSG_API_(VLSG_Bool) VLSG_SetEffect(unsigned int effect)
+{
+    if (effect > 2) {
+        return VLSG_FALSE;
+    }
+    effect_param_value = 0x20 + effect;
+    DisableReverb();
+    if (effect == 0) {
+        DisableReverb(); // calls twice
+        return VLSG_TRUE;
+    }
+    if (effect_param_value == 0x22)
+    {
+        SetReverbShift(0);
+        EnableReverb();
+        return VLSG_TRUE;
+    }
+    SetReverbShift(1);
+    EnableReverb();
+    return VLSG_TRUE;
 }
 
 VLSG_API_(VLSG_Bool) VLSG_Init(void)
@@ -1748,7 +1784,11 @@ static void EnableReverb(void)
 static void DisableReverb(void)
 {
     is_reverb_enabled = 0;
+#ifdef _MSC_VER
+    __stosd((unsigned long*)reverb_data_buffer, 0, sizeof(reverb_data_buffer) / 4);
+#else
     memset(reverb_data_buffer, 0, sizeof(reverb_data_buffer));
+#endif
 }
 
 static void SetReverbShift(uint32_t shift)
@@ -2451,4 +2491,14 @@ static int16_t rom_read_word_at(uint32_t offset)
     rom_offset = offset + 2;
     return (int16_t)READ_LE_UINT16(romsxgm_ptr + offset);
 }
+
+#if defined(VLSG_BUILD_DLL)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+BOOL WINAPI DllEntryPoint(HINSTANCE hinst, DWORD reason, void* context)
+{
+    return TRUE;
+}
+#endif
 

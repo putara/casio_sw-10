@@ -1,0 +1,20 @@
+LIBRARY VLSG
+EXPORTS
+  VLSG_GetVersion
+  VLSG_GetName
+  VLSG_GetTime
+  VLSG_SetFunc_GetTime
+  VLSG_SetWaveBuffer
+  VLSG_SetRomAddress
+  VLSG_SetFrequency
+  VLSG_SetPolyphony
+  VLSG_SetEffect
+  VLSG_Init
+  VLSG_Exit
+  VLSG_Write
+  VLSG_Buffer
+  VLSG_SetParameter
+  VLSG_PlaybackStart
+  VLSG_PlaybackStop
+  VLSG_AddMidiData
+  VLSG_FillOutputBuffer

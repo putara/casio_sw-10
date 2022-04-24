@@ -135,7 +135,7 @@ static inline void WRITE_LE_UINT32(uint8_t *ptr, uint32_t value)
 }
 
 
-static uint32_t VLSG_GetTime(void)
+static uint32_t VLSG_CALLTYPE VLSG_GetTime(void)
 {
     return current_time;
 }
