@@ -1,0 +1,21 @@
+OBJDIR = obj
+BINDIR = bin
+CFLAGS = -nologo -O1ib2 -Gy -GL -GS- -EHs-c- -W3 -MD -DNDEBUG -D_WINDOWS -Fo"$(OBJDIR)/" -Fd"$(BINDIR)/"
+LDFLAGS = -nologo -ltcg -dynamicbase:no -nxcompat -debug -pdbaltpath:"%_PDB%"
+
+all: $(OBJDIR) $(BINDIR) $(BINDIR)\vlsg.dll $(BINDIR)\smfplay.exe
+
+$(OBJDIR):
+	@mkdir $(OBJDIR)
+
+$(BINDIR):
+	@mkdir $(BINDIR)
+
+$(BINDIR)\vlsg.dll: ../VLSG/VLSG.c ../VLSG/VLSG.h ../VLSG/VLSG.def
+	cl $(CFLAGS) -Zl -DVLSG_BUILD_DLL -Fe"$(BINDIR)\vlsg.dll" ../VLSG/VLSG.c -I../VLSG -link $(LDFLAGS) -implib:"$(OBJDIR)\vlsg.lib" -entry:DllEntryPoint -subsystem:windows -def:../VLSG/VLSG.def
+
+$(BINDIR)\smfplay.exe: ../smfplay/smfplay.cpp ../smfplay/smf.hpp ../VLSG/vlsg.h $(OBJDIR)\vlsg.lib
+	cl $(CFLAGS) -Fe"$(BINDIR)\smfplay.exe" ../smfplay/smfplay.cpp -I../VLSG -link $(LDFLAGS) -libpath:"$(OBJDIR)/"
+
+clean:
+	@del /s $(BINDIR)\*.exe $(BINDIR)\*.pdb $(OBJDIR)\*.obj
