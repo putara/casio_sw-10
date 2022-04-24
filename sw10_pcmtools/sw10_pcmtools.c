@@ -86,6 +86,10 @@ enum ParameterType
 
 #endif
 
+#ifdef _MSC_VER
+#define inline __inline
+#endif
+
 
 static const char *arg_input = NULL;
 static const char *arg_output = NULL;

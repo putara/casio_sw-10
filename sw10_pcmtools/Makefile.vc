@@ -1,0 +1,24 @@
+OUTDIR = ..\bin
+CFLAGS = -nologo -O1ib2 -GL -W3 -MD -Zi -Fo"$(OUTDIR)/" -Fd"$(OUTDIR)/"
+
+all: $(OUTDIR) $(OUTDIR)\sw10_pcmconvert.exe
+
+all_dll: $(OUTDIR)\sw10_pcmconvert_dll.exe $(OUTDIR)\sw10_pcmcompare_dll.exe $(OUTDIR)\sw10_pcmcompare_dll_external.exe
+
+$(OUTDIR):
+	@mkdir $(OUTDIR)
+
+$(OUTDIR)\sw10_pcmconvert.exe: sw10_pcmtools.c midi_loader.c midi_loader.h ../VLSG/VLSG.c ../VLSG/VLSG.h
+	cl $(CFLAGS) -DPCM_TOOL=PCM_CONVERT_INTERNAL -Fe"$(OUTDIR)\sw10_pcmconvert.exe" sw10_pcmtools.c midi_loader.c ../VLSG/VLSG.c -I../VLSG
+
+$(OUTDIR)\sw10_pcmconvert_dll.exe: sw10_pcmtools.c midi_loader.c midi_loader.h dll_loader.c dll_loader.h
+	cl $(CFLAGS) -DPCM_TOOL=PCM_CONVERT_DLL -Fe"$(OUTDIR)\sw10_pcmconvert_dll.exe" sw10_pcmtools.c midi_loader.c dll_loader.c
+
+$(OUTDIR)\sw10_pcmcompare_dll.exe: sw10_pcmtools.c midi_loader.c midi_loader.h dll_loader.c dll_loader.h ../VLSG/VLSG.c ../VLSG/VLSG.h
+	cl $(CFLAGS) -DPCM_TOOL=PCM_COMPARE_DLL_INTERNAL -Fe"$(OUTDIR)\sw10_pcmcompare_dll.exe" sw10_pcmtools.c midi_loader.c dll_loader.c ../VLSG/VLSG.c -I../VLSG
+
+$(OUTDIR)\sw10_pcmcompare_dll_external.exe: sw10_pcmtools.c midi_loader.c midi_loader.h dll_loader.c dll_loader.h
+	cl $(CFLAGS) -DPCM_TOOL=PCM_COMPARE_DLL_EXTERNAL -Fe"$(OUTDIR)\sw10_pcmcompare_dll_external.exe" sw10_pcmtools.c midi_loader.c dll_loader.c
+
+clean:
+	@del /s $(OUTDIR)\*.exe $(OUTDIR)\*.obj
